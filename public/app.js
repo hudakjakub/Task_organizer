@@ -19,7 +19,7 @@ const state = {
 const appEl = document.getElementById("app");
 const sessionInfoEl = document.getElementById("sessionInfo");
 const appVersionEl = document.getElementById("appVersion");
-const APP_VERSION_FALLBACK = "0.6.1";
+const APP_VERSION_FALLBACK = "0.6.2";
 let realtimeSocket = null;
 let realtimeReconnectTimer = null;
 
