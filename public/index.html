@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Task Organizer</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>Task Organizer <span id="appVersion" class="version-badge"></span></h1>
+          <p class="subtitle">Basic Trello-like board for SPA1 project task management</p>
+        </div>
+        <div id="sessionInfo" class="session"></div>
+      </header>
+
+      <main id="app"></main>
+      <div id="modalHost"></div>
+    </div>
+
+    <template id="loginTemplate">
+      <section class="panel login-panel">
+        <h2>Sign In</h2>
+        <p>Create an account or log in to access the shared board.</p>
+        <div class="auth-mode-toggle">
+          <button id="loginModeBtn" type="button">Login</button>
+          <button id="registerModeBtn" type="button" class="ghost">Register</button>
+        </div>
+        <form id="loginForm" class="stack">
+          <input id="usernameInput" type="text" maxlength="30" placeholder="e.g. Alice" required />
+          <input id="passwordInput" type="password" minlength="8" placeholder="Password" required />
+          <input id="confirmPasswordInput" type="password" minlength="8" placeholder="Confirm password" />
+          <label class="remember-row">
+            <input id="rememberMeInput" type="checkbox" />
+            <span>Remember me</span>
+          </label>
+          <button type="submit">Enter</button>
+        </form>
+        <p id="authHint" class="hint">Login with your username and password.</p>
+      </section>
+    </template>
+
+    <template id="boardTemplate">
+      <section class="board-page">
+        <div class="toolbar">
+          <button id="addListBtn" class="ghost">Add List</button>
+          <button id="manageLabelsBtn" class="ghost">Labels</button>
+          <button id="toggleArchiveBtn" class="ghost">Show Archive</button>
+          <button id="logoutBtn" class="ghost">Logout</button>
+        </div>
+        <div id="listsContainer" class="lists"></div>
+        <section id="archivePanel" class="activity-panel" hidden>
+          <div class="activity-header">
+            <h3>Archive</h3>
+            <p>Archived cards</p>
+          </div>
+          <div id="archiveContainer" class="activity-strip"></div>
+        </section>
+        <section class="activity-panel">
+          <div class="activity-header">
+            <h3>Activity</h3>
+            <p>Newest changes on the left</p>
+          </div>
+          <div id="activityContainer" class="activity-strip"></div>
+        </section>
+      </section>
+    </template>
+
+    <script src="/app.js"></script>
+  </body>
+  </html>

@@ -1,0 +1,11 @@
+{
+  "name": "task-organizer",
+  "version": "0.6.1",
+  "private": true,
+  "description": "Basic Trello-like multi-user board",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  }
+}
