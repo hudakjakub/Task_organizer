@@ -3,6 +3,7 @@ const state = {
   board: null,
   users: [],
   activity: [],
+  activeUsers: [],
   csrfToken: null,
   ui: {
     openListMenuId: null,
@@ -10,6 +11,9 @@ const state = {
     modalCardId: null,
     dragCardId: null,
     unseenUpdatedCardIds: new Set(),
+    enteringCardIds: new Set(),
+    enteringListIds: new Set(),
+    showActivity: false,
     showArchive: false,
     promptDialog: null,
     labelsDialogOpen: false
@@ -18,10 +22,17 @@ const state = {
 
 const appEl = document.getElementById("app");
 const sessionInfoEl = document.getElementById("sessionInfo");
+const activeUsersInfoEl = document.getElementById("activeUsersInfo");
+const toastHostEl = document.getElementById("toastHost");
 const appVersionEl = document.getElementById("appVersion");
-const APP_VERSION_FALLBACK = "0.7.1";
+const themeToggleBtn = document.getElementById("themeToggleBtn");
+const APP_VERSION_FALLBACK = "1.0.0";
+const THEME_STORAGE_KEY = "task-organizer:theme";
+const THEME_ICON_MOON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.2A8.5 8.5 0 0 1 9.8 4 9 9 0 1 0 20 14.2Z"></path></svg>';
+const THEME_ICON_SUN = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2.5v2.2M12 19.3v2.2M21.5 12h-2.2M4.7 12H2.5M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6M18.7 18.7l-1.6-1.6M6.9 6.9L5.3 5.3"></path></svg>';
 let realtimeSocket = null;
 let realtimeReconnectTimer = null;
+let toastSeq = 0;
 
 function getSeenCardsStorageKey(userId) {
   return `task-organizer:seen-cards:${userId}`;
@@ -43,6 +54,172 @@ function writeSeenCards(userId, value) {
   try {
     localStorage.setItem(getSeenCardsStorageKey(userId), JSON.stringify(value || {}));
   } catch {}
+}
+
+function readThemePreference() {
+  try {
+    const stored = localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === "dark" || stored === "light") return stored;
+  } catch {}
+  return "light";
+}
+
+function writeThemePreference(theme) {
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch {}
+}
+
+function applyTheme(theme) {
+  const safeTheme = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = safeTheme;
+  if (themeToggleBtn) {
+    const isDark = safeTheme === "dark";
+    themeToggleBtn.innerHTML = isDark ? THEME_ICON_SUN : THEME_ICON_MOON;
+    themeToggleBtn.setAttribute("aria-label", isDark ? "Enable light mode" : "Enable dark mode");
+  }
+}
+
+function toggleTheme() {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  applyTheme(next);
+  writeThemePreference(next);
+}
+
+function ensureToastHost() {
+  return toastHostEl || document.getElementById("toastHost");
+}
+
+function toast(message, type = "info", timeoutMs = 3200) {
+  const host = ensureToastHost();
+  if (!host || !message) return;
+  const el = document.createElement("div");
+  el.className = `toast toast-${type}`;
+  el.dataset.toastId = String(++toastSeq);
+  el.textContent = String(message);
+  host.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("show"));
+  const remove = () => {
+    el.classList.remove("show");
+    setTimeout(() => el.remove(), 180);
+  };
+  el.addEventListener("click", remove, { once: true });
+  setTimeout(remove, timeoutMs);
+}
+
+function toastError(err) {
+  const message = err?.message || String(err || "Error");
+  toast(message, "error", 4200);
+}
+
+function alert(message) {
+  toast(String(message || ""), "error", 4200);
+}
+
+function prefersReducedMotion() {
+  try {
+    return Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  } catch {
+    return false;
+  }
+}
+
+function snapshotBoardRects() {
+  const lists = new Map();
+  const cards = new Map();
+  document.querySelectorAll(".list[data-list-id]").forEach((el) => {
+    lists.set(el.dataset.listId, el.getBoundingClientRect());
+  });
+  document.querySelectorAll(".card[data-card-id]").forEach((el) => {
+    cards.set(el.dataset.cardId, el.getBoundingClientRect());
+  });
+  return { lists, cards };
+}
+
+function animateElementEnter(el, type) {
+  if (!el || prefersReducedMotion() || typeof el.animate !== "function") return;
+  const isCard = type === "card";
+  try {
+    el.animate(
+      [
+        { opacity: 0, transform: `translateY(${isCard ? 10 : 14}px) scale(${isCard ? 0.985 : 0.99})` },
+        { opacity: 1, transform: "translateY(0) scale(1)" }
+      ],
+      {
+        duration: isCard ? 220 : 260,
+        easing: "cubic-bezier(.2,.8,.2,1)"
+      }
+    );
+  } catch {}
+}
+
+function animateElementExit(el, type) {
+  if (!el || prefersReducedMotion() || typeof el.animate !== "function") return Promise.resolve();
+  const isCard = type === "card";
+  try {
+    return el
+      .animate(
+        [
+          { opacity: 1, transform: "translateY(0) scale(1)" },
+          { opacity: 0, transform: `translateY(${isCard ? 8 : 12}px) scale(${isCard ? 0.985 : 0.99})` }
+        ],
+        {
+          duration: isCard ? 160 : 180,
+          easing: "ease-out",
+          fill: "forwards"
+        }
+      )
+      .finished.catch(() => {});
+  } catch {
+    return Promise.resolve();
+  }
+}
+
+function animateBoardLayoutChanges(prevRects) {
+  const enteringCardIds = new Set(state.ui.enteringCardIds || []);
+  const enteringListIds = new Set(state.ui.enteringListIds || []);
+  state.ui.enteringCardIds.clear();
+  state.ui.enteringListIds.clear();
+  if (prefersReducedMotion()) return;
+
+  const animateFlipGroup = (selector, key, prevMap, duration, options = {}) => {
+    const movedIds = new Set();
+    const lockAxis = options.lockAxis || "";
+    document.querySelectorAll(selector).forEach((el) => {
+      const id = el.dataset[key];
+      if (!id) return;
+      const before = prevMap.get(id);
+      const after = el.getBoundingClientRect();
+      if (!before) return;
+      let dx = before.left - after.left;
+      let dy = before.top - after.top;
+      if (lockAxis === "x") dy = 0;
+      if (lockAxis === "y") dx = 0;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+      movedIds.add(id);
+      try {
+        el.animate(
+          [
+            { transform: `translate(${dx}px, ${dy}px)` },
+            { transform: "translate(0, 0)" }
+          ],
+          {
+            duration,
+            easing: "cubic-bezier(.2,.8,.2,1)"
+          }
+        );
+      } catch {}
+    });
+    return movedIds;
+  };
+
+  const movedListIds = animateFlipGroup(".list[data-list-id]", "listId", prevRects?.lists || new Map(), 260);
+  if (movedListIds.size === 0) {
+    animateFlipGroup(".card[data-card-id]", "cardId", prevRects?.cards || new Map(), 220, { lockAxis: "y" });
+  }
+
+  enteringListIds.forEach((id) => animateElementEnter(document.querySelector(`.list[data-list-id="${id}"]`), "list"));
+  enteringCardIds.forEach((id) => animateElementEnter(document.querySelector(`.card[data-card-id="${id}"]`), "card"));
 }
 
 async function api(path, options = {}) {
@@ -80,8 +257,48 @@ function escapeHtml(str) {
     .replaceAll('"', "&quot;");
 }
 
+function renderInlineFormatting(text) {
+  let html = escapeHtml(text ?? "");
+  html = html.replace(/\*\*([^*\n][\s\S]*?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/(^|[^*])\*([^*\n][\s\S]*?)\*/g, "$1<em>$2</em>");
+  return html;
+}
+
+function renderDescriptionHtml(text) {
+  return renderInlineFormatting(String(text ?? "")).replace(/\n/g, "<br>");
+}
+
+function applyTextareaWrapperShortcut(textarea, marker) {
+  if (!textarea) return;
+  const start = textarea.selectionStart ?? 0;
+  const end = textarea.selectionEnd ?? 0;
+  const value = textarea.value || "";
+  const selected = value.slice(start, end);
+  const before = value.slice(0, start);
+  const after = value.slice(end);
+  const wrapped = `${marker}${selected}${marker}`;
+  textarea.value = `${before}${wrapped}${after}`;
+  const cursorStart = start + marker.length;
+  const cursorEnd = end + marker.length;
+  textarea.focus();
+  textarea.setSelectionRange(cursorStart, cursorEnd);
+}
+
 function updateSessionInfo() {
   sessionInfoEl.textContent = state.user ? `Signed in as ${state.user.name}` : "";
+  if (!activeUsersInfoEl) return;
+  if (!state.user) {
+    activeUsersInfoEl.innerHTML = "";
+    return;
+  }
+  const names = (state.activeUsers || []).map((u) => u.name).filter(Boolean);
+  if (!names.length) {
+    activeUsersInfoEl.innerHTML = "";
+    return;
+  }
+  activeUsersInfoEl.innerHTML = `<span class="active-users-label">Active users:</span> ${names
+    .map((name) => `<span class="active-user-chip"><span class="active-user-dot" aria-hidden="true"></span>${escapeHtml(name)}</span>`)
+    .join(" ")}`;
 }
 
 function listCards(list) {
@@ -90,6 +307,15 @@ function listCards(list) {
 }
 
 function applyData(data) {
+  const prevBoard = state.board;
+  const nextBoard = data.board;
+  const prevCardIds = new Set(Object.keys(prevBoard?.cards || {}));
+  const nextCardIds = Object.keys(nextBoard?.cards || {});
+  state.ui.enteringCardIds = new Set(
+    nextCardIds.filter((id) => !prevCardIds.has(id) && !nextBoard.cards[id]?.archived)
+  );
+  const prevListIds = new Set((prevBoard?.lists || []).map((l) => l.id));
+  state.ui.enteringListIds = new Set((nextBoard?.lists || []).map((l) => l.id).filter((id) => !prevListIds.has(id)));
   state.board = data.board;
   state.users = data.users || [];
   state.activity = data.activity || [];
@@ -135,6 +361,11 @@ function ensureRealtimeConnection() {
     realtimeSocket.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data || "{}");
+        if (msg.type === "active_users") {
+          state.activeUsers = Array.isArray(msg.users) ? msg.users : [];
+          updateSessionInfo();
+          return;
+        }
         if (msg.type !== "board_updated") return;
         if (!state.user || !state.board) return;
         const tag = document.activeElement?.tagName;
@@ -286,7 +517,7 @@ function createCardHtml(card, list) {
           ${dueDate ? `<span class="pill ${dueClass}">${escapeHtml(dueDate)}</span>` : ""}
           ${estimate ? `<span class="pill">Effort: ${escapeHtml(estimate)}h</span>` : ""}
         </div>
-        ${desc ? `<div class="card-preview-block">${escapeHtml(desc)}</div>` : ""}
+        ${desc ? `<div class="card-preview-block">${renderDescriptionHtml(desc)}</div>` : ""}
         ${checklist.length ? `
           <div class="mini-checklist">
             ${checklistPreview}
@@ -314,9 +545,9 @@ function createListHtml(list) {
     <section class="list" data-list-id="${list.id}">
       <div class="list-header">
         <input class="list-title-input" maxlength="60" value="${escapeHtml(list.title)}" />
-        <button class="small-btn ghost add-card-inline-btn" title="Add card">+ Card</button>
+        <button class="small-btn ghost add-card-inline-btn" title="Add card">Add Card</button>
         <div class="list-menu-wrap">
-          <button class="small-btn ghost list-menu-btn" title="List options">...</button>
+          <button class="small-btn ghost list-menu-btn" title="List options">&#8942;</button>
           ${isMenuOpen ? `
             <div class="list-menu">
               <button class="list-menu-item rename-list-item">Rename</button>
@@ -405,9 +636,21 @@ function formatCurrentListTotalTime(card, list) {
   return formatDurationMs(baseMs + liveMs);
 }
 
+function getActivityIcon(message) {
+  const text = String(message || "").toLowerCase();
+  if (text.includes("added card") || text.includes("created")) return "＋";
+  if (text.includes("moved")) return "↕";
+  if (text.includes("archiv")) return "◫";
+  if (text.includes("delete")) return "✕";
+  if (text.includes("rename") || text.includes("updated")) return "✎";
+  return "•";
+}
+
 function renderActivity() {
+  const panel = document.getElementById("activityPanel");
   const container = document.getElementById("activityContainer");
-  if (!container) return;
+  if (panel) panel.hidden = !state.ui.showActivity;
+  if (!container || !state.ui.showActivity) return;
   const items = (state.activity || []).slice(-20).reverse();
   if (!items.length) {
     container.innerHTML = '<article class="activity-item"><small>No activity yet.</small></article>';
@@ -415,11 +658,14 @@ function renderActivity() {
   }
   container.innerHTML = items
     .map((item) => `
-      <article class="activity-item">
-        <div class="activity-message"><strong>${escapeHtml(item.actorName || "System")}</strong> ${escapeHtml(item.message || "")}</div>
-        <small>${escapeHtml(formatTime(item.createdAt))}</small>
-      </article>
-    `)
+        <article class="activity-item">
+          <div class="activity-item-head">
+            <span class="activity-icon" aria-hidden="true">${escapeHtml(getActivityIcon(item.message))}</span>
+            <div class="activity-message"><strong>${escapeHtml(item.actorName || "System")}</strong> ${escapeHtml(item.message || "")}</div>
+          </div>
+          <small>${escapeHtml(formatTime(item.createdAt))}</small>
+        </article>
+      `)
     .join("");
 }
 
@@ -634,6 +880,10 @@ function renderModal() {
           </label>
           <label class="full">
             <span>Description</span>
+            <div class="description-toolbar" role="toolbar" aria-label="Description formatting">
+              <button type="button" class="small-btn ghost desc-format-btn" data-format="bold" title="Bold (Ctrl/Cmd+B)"><strong>B</strong></button>
+              <button type="button" class="small-btn ghost desc-format-btn" data-format="italic" title="Italic (Ctrl/Cmd+I)"><em>I</em></button>
+            </div>
             <textarea id="modalCardDescription" maxlength="500" placeholder="Description">${escapeHtml(card.description || "")}</textarea>
           </label>
           <div class="full checklist-section">
@@ -674,6 +924,26 @@ function renderModal() {
   host.querySelector(".close-modal-btn").addEventListener("click", () => closeCardModal());
   host.querySelector(".modal-card").addEventListener("click", (e) => e.stopPropagation());
   document.getElementById("modalDeleteCardBtn").addEventListener("click", deleteModalCard);
+  const descriptionTextarea = document.getElementById("modalCardDescription");
+  host.querySelectorAll(".desc-format-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const mode = btn.dataset.format;
+      applyTextareaWrapperShortcut(descriptionTextarea, mode === "bold" ? "**" : "*");
+    });
+  });
+  descriptionTextarea?.addEventListener("keydown", (e) => {
+    if (e.altKey) return;
+    const mod = e.ctrlKey || e.metaKey;
+    if (!mod) return;
+    const k = String(e.key || "").toLowerCase();
+    if (k === "b") {
+      e.preventDefault();
+      applyTextareaWrapperShortcut(descriptionTextarea, "**");
+    } else if (k === "i") {
+      e.preventDefault();
+      applyTextareaWrapperShortcut(descriptionTextarea, "*");
+    }
+  });
   document.getElementById("modalAddChecklistItemBtn").addEventListener("click", () => {
     const container = document.getElementById("modalChecklistItems");
     const empty = container.querySelector(".checklist-empty");
@@ -775,6 +1045,7 @@ function collectAssigneeIdFromModal() {
 }
 
 function renderBoard() {
+  const prevRects = snapshotBoardRects();
   const tpl = document.getElementById("boardTemplate");
   appEl.innerHTML = "";
   appEl.appendChild(tpl.content.cloneNode(true));
@@ -784,15 +1055,18 @@ function renderBoard() {
   const listCount = state.board.lists.length || 1;
   listsContainer.style.setProperty("--list-columns", String(Math.max(1, Math.min(4, listCount))));
   listsContainer.classList.toggle("scrollable-lists", listCount > 4);
+  document.getElementById("toggleActivityBtn").textContent = state.ui.showActivity ? "Hide Activity" : "Show Activity";
   document.getElementById("toggleArchiveBtn").textContent = state.ui.showArchive ? "Hide Archive" : "Show Archive";
   renderArchive();
   renderActivity();
   renderModal();
   attachBoardHandlers();
+  requestAnimationFrame(() => animateBoardLayoutChanges(prevRects));
 }
 
 function render() {
   updateSessionInfo();
+  applyTheme(document.documentElement.dataset.theme || readThemePreference());
   if (!state.user || !state.board) return renderLogin();
   renderBoard();
 }
@@ -864,6 +1138,22 @@ async function persistModalCardChanges(cardId = state.ui.modalCardId) {
   const labelIds = collectLabelIdsFromModal();
   if (!title) return alert("Card title is required");
 
+  const currentAssigneeId = Array.isArray(current.assigneeIds) ? (current.assigneeIds[0] || "") : (current.assigneeId || "");
+  const currentListId = state.board.lists.find((l) => l.cardIds.includes(cardId))?.id || "";
+  const currentChecklist = Array.isArray(current.checklist) ? current.checklist : [];
+  const currentLabelIds = Array.isArray(current.labelIds) ? current.labelIds : [];
+  const noFieldChanges =
+    title === (current.title || "") &&
+    description === (current.description || "") &&
+    assigneeId === currentAssigneeId &&
+    priority === (current.priority || "") &&
+    dueDate === (current.dueDate || "") &&
+    estimate === (current.estimate || "") &&
+    JSON.stringify(checklist) === JSON.stringify(currentChecklist) &&
+    JSON.stringify(labelIds) === JSON.stringify(currentLabelIds);
+  const noListChange = !targetListId || targetListId === currentListId;
+  if (noFieldChanges && noListChange) return true;
+
   try {
     let data = await api(`/api/cards/${cardId}`, {
       method: "PATCH",
@@ -894,6 +1184,7 @@ async function closeCardModal() {
 
 async function archiveCard(cardId) {
   try {
+    await animateElementExit(document.querySelector(`.card[data-card-id="${cardId}"]`), "card");
     const data = await api(`/api/cards/${cardId}/archive`, { method: "POST" });
     if (state.ui.modalCardId === cardId) state.ui.modalCardId = null;
     applyData(data);
@@ -948,6 +1239,34 @@ function getDropPosition(cardListEl, y, draggingCardId) {
   return cards.length;
 }
 
+function getDropPlaceholder(cardListEl) {
+  let el = cardListEl.querySelector(".card-drop-placeholder");
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "card-drop-placeholder";
+  }
+  return el;
+}
+
+function renderDropPlaceholder(cardListEl, y, draggingCardId) {
+  const placeholder = getDropPlaceholder(cardListEl);
+  const cards = [...cardListEl.querySelectorAll(".card[data-card-id]")].filter((el) => el.dataset.cardId !== draggingCardId);
+  let inserted = false;
+  for (const cardEl of cards) {
+    const rect = cardEl.getBoundingClientRect();
+    if (y < rect.top + rect.height / 2) {
+      if (cardEl.previousElementSibling !== placeholder) cardListEl.insertBefore(placeholder, cardEl);
+      inserted = true;
+      break;
+    }
+  }
+  if (!inserted) cardListEl.appendChild(placeholder);
+}
+
+function clearAllDropPlaceholders() {
+  document.querySelectorAll(".card-drop-placeholder").forEach((el) => el.remove());
+}
+
 function attachBoardHandlers() {
   document.addEventListener("click", handleOutsideMenuClick, { once: true });
 
@@ -958,9 +1277,10 @@ function attachBoardHandlers() {
       state.board = null;
       state.users = [];
       state.activity = [];
+      state.activeUsers = [];
       state.csrfToken = null;
       closeRealtimeConnection();
-      state.ui = { openListMenuId: null, openAddCardListId: null, modalCardId: null, dragCardId: null, unseenUpdatedCardIds: new Set(), showArchive: false, promptDialog: null, labelsDialogOpen: false };
+      state.ui = { openListMenuId: null, openAddCardListId: null, modalCardId: null, dragCardId: null, unseenUpdatedCardIds: new Set(), enteringCardIds: new Set(), enteringListIds: new Set(), showActivity: false, showArchive: false, promptDialog: null, labelsDialogOpen: false };
       render();
     } catch (err) {
       alert(err.message);
@@ -989,6 +1309,10 @@ function attachBoardHandlers() {
 
   document.getElementById("manageLabelsBtn").addEventListener("click", () => {
     state.ui.labelsDialogOpen = true;
+    render();
+  });
+  document.getElementById("toggleActivityBtn").addEventListener("click", () => {
+    state.ui.showActivity = !state.ui.showActivity;
     render();
   });
 
@@ -1070,6 +1394,7 @@ function attachBoardHandlers() {
         e.stopPropagation();
         if (!confirm("Delete this list and all its cards?")) return;
         try {
+          await animateElementExit(listEl, "list");
           const data = await api(`/api/lists/${listId}`, { method: "DELETE" });
           state.ui.openListMenuId = null;
           if (state.ui.openAddCardListId === listId) state.ui.openAddCardListId = null;
@@ -1113,9 +1438,13 @@ function attachBoardHandlers() {
       e.preventDefault();
       e.stopPropagation();
       cardListEl.classList.add("drag-over");
+      renderDropPlaceholder(cardListEl, e.clientY, state.ui.dragCardId);
     });
     cardListEl.addEventListener("dragleave", (e) => {
-      if (!cardListEl.contains(e.relatedTarget)) cardListEl.classList.remove("drag-over");
+      if (!cardListEl.contains(e.relatedTarget)) {
+        cardListEl.classList.remove("drag-over");
+        cardListEl.querySelector(".card-drop-placeholder")?.remove();
+      }
     });
     cardListEl.addEventListener("drop", async (e) => {
       e.preventDefault();
@@ -1130,6 +1459,7 @@ function attachBoardHandlers() {
         alert(err.message);
       } finally {
         state.ui.dragCardId = null;
+        clearAllDropPlaceholders();
       }
     });
 
@@ -1157,6 +1487,7 @@ function attachBoardHandlers() {
         state.ui.dragCardId = null;
         cardEl.classList.remove("dragging");
         document.querySelectorAll(".drag-over").forEach((el) => el.classList.remove("drag-over"));
+        clearAllDropPlaceholders();
       });
     });
   });
@@ -1182,6 +1513,8 @@ function handleEscapeModal(e) {
 
 async function init() {
   try {
+    applyTheme(readThemePreference());
+    if (themeToggleBtn) themeToggleBtn.addEventListener("click", toggleTheme);
     await loadAppMeta();
     const me = await api("/api/me");
     if (!me.user) return render();

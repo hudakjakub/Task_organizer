@@ -13,10 +13,15 @@
           <h1>Task Organizer <span id="appVersion" class="version-badge"></span></h1>
           <p class="subtitle">Basic Trello-like board for SPA1 project task management</p>
         </div>
-        <div id="sessionInfo" class="session"></div>
+        <div class="topbar-side">
+          <button id="themeToggleBtn" type="button" class="topbar-link-btn theme-icon-btn" aria-label="Enable dark mode"></button>
+          <div id="sessionInfo" class="session"></div>
+        </div>
       </header>
 
       <main id="app"></main>
+      <div id="activeUsersInfo" class="active-users-bar"></div>
+      <div id="toastHost" class="toast-host" aria-live="polite"></div>
       <div id="modalHost"></div>
     </div>
 
@@ -47,6 +52,7 @@
         <div class="toolbar">
           <button id="addListBtn" class="ghost">Add List</button>
           <button id="manageLabelsBtn" class="ghost">Labels</button>
+          <button id="toggleActivityBtn" class="ghost">Show Activity</button>
           <button id="toggleArchiveBtn" class="ghost">Show Archive</button>
           <button id="logoutBtn" class="ghost">Logout</button>
         </div>
@@ -58,7 +64,7 @@
           </div>
           <div id="archiveContainer" class="activity-strip"></div>
         </section>
-        <section class="activity-panel">
+        <section id="activityPanel" class="activity-panel">
           <div class="activity-header">
             <h3>Activity</h3>
             <p>Newest changes on the left</p>

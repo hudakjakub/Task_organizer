@@ -217,6 +217,21 @@ function broadcastWsMessage(obj) {
   }
 }
 
+function getActiveUsersSnapshot() {
+  const byId = new Map();
+  for (const socket of wsClients) {
+    if (!socket || socket.destroyed) continue;
+    const user = socket._taskOrgUser;
+    if (!user?.id || !user?.name) continue;
+    if (!byId.has(user.id)) byId.set(user.id, { id: user.id, name: user.name });
+  }
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function broadcastActiveUsers() {
+  broadcastWsMessage({ type: "active_users", users: getActiveUsersSnapshot(), at: nowIso() });
+}
+
 function notFound(res) {
   sendJson(res, 404, { error: "Not found" });
 }
@@ -704,7 +719,7 @@ async function handleApi(req, res, urlObj) {
       updatedAt: new Date().toISOString()
     };
     store.board.cards[card.id] = card;
-    list.cardIds.push(card.id);
+    list.cardIds.unshift(card.id);
     logActivity(store, user, `added card "${title}" to "${list.title}"`);
     writeStore(store);
     return sendJson(res, 201, { ok: true, ...toBoardResponse(store) });
@@ -933,20 +948,39 @@ function handleWebSocketUpgrade(req, socket) {
         "\r\n"
       ].join("\r\n")
     );
+    let activeUser = null;
+    try {
+      const store = readStore();
+      const ctx = getSessionContext(req, store);
+      if (ctx?.user) activeUser = toPublicUser(ctx.user);
+    } catch {}
+    if (activeUser) socket._taskOrgUser = activeUser;
     wsClients.add(socket);
     socket.on("data", (buf) => {
       if (!buf || buf.length < 2) return;
       const opcode = buf[0] & 0x0f;
       if (opcode === 0x8) {
         wsClients.delete(socket);
+        broadcastActiveUsers();
         socket.end();
       }
       // We ignore incoming messages; client only listens.
     });
-    socket.on("close", () => wsClients.delete(socket));
-    socket.on("end", () => wsClients.delete(socket));
-    socket.on("error", () => wsClients.delete(socket));
+    socket.on("close", () => {
+      wsClients.delete(socket);
+      broadcastActiveUsers();
+    });
+    socket.on("end", () => {
+      wsClients.delete(socket);
+      broadcastActiveUsers();
+    });
+    socket.on("error", () => {
+      wsClients.delete(socket);
+      broadcastActiveUsers();
+    });
     socket.write(encodeWsTextFrame(JSON.stringify({ type: "connected", at: nowIso() })));
+    socket.write(encodeWsTextFrame(JSON.stringify({ type: "active_users", users: getActiveUsersSnapshot(), at: nowIso() })));
+    broadcastActiveUsers();
   } catch {
     try {
       socket.destroy();
