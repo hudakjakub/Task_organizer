@@ -126,7 +126,7 @@ function readStore() {
     if (!Array.isArray(card.assigneeIds)) {
       card.assigneeIds = card.assigneeId ? [card.assigneeId] : [];
     }
-    if (!["low", "medium", "high", ""].includes(card.priority || "")) card.priority = "";
+    if (!["low", "medium", "high", "critical", ""].includes(card.priority || "")) card.priority = "";
     if (typeof card.dueDate !== "string") card.dueDate = "";
     if (typeof card.estimate !== "string") card.estimate = "";
     if (typeof card.createdAt !== "string") card.createdAt = card.updatedAt || new Date().toISOString();
@@ -772,7 +772,7 @@ async function handleApi(req, res, urlObj) {
     }
     if (body.priority !== undefined) {
       const priority = String(body.priority || "");
-      if (!["", "low", "medium", "high"].includes(priority)) {
+      if (!["", "low", "medium", "high", "critical"].includes(priority)) {
         return badRequest(res, "Invalid priority");
       }
       if ((card.priority || "") !== priority) changes.push(priority ? `set priority to ${priority}` : "cleared priority");

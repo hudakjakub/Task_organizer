@@ -16,8 +16,13 @@ const state = {
     showActivity: false,
     showArchive: false,
     promptDialog: null,
-    labelsDialogOpen: false
-  }
+    labelsDialogOpen: false,
+    preferencesDialogOpen: false
+  },
+  preferences: {
+    highlightAssignedCards: true
+  },
+  preferencesUserId: null
 };
 
 const appEl = document.getElementById("app");
@@ -26,13 +31,17 @@ const activeUsersInfoEl = document.getElementById("activeUsersInfo");
 const toastHostEl = document.getElementById("toastHost");
 const appVersionEl = document.getElementById("appVersion");
 const themeToggleBtn = document.getElementById("themeToggleBtn");
-const APP_VERSION_FALLBACK = "1.0.0";
+const APP_VERSION_FALLBACK = "1.1.13";
 const THEME_STORAGE_KEY = "task-organizer:theme";
+const USER_PREFS_KEY_PREFIX = "task-organizer:prefs:";
 const THEME_ICON_MOON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.2A8.5 8.5 0 0 1 9.8 4 9 9 0 1 0 20 14.2Z"></path></svg>';
 const THEME_ICON_SUN = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2.5v2.2M12 19.3v2.2M21.5 12h-2.2M4.7 12H2.5M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6M18.7 18.7l-1.6-1.6M6.9 6.9L5.3 5.3"></path></svg>';
 let realtimeSocket = null;
 let realtimeReconnectTimer = null;
 let toastSeq = 0;
+const DEFAULT_USER_PREFERENCES = Object.freeze({
+  highlightAssignedCards: true
+});
 
 function getSeenCardsStorageKey(userId) {
   return `task-organizer:seen-cards:${userId}`;
@@ -54,6 +63,48 @@ function writeSeenCards(userId, value) {
   try {
     localStorage.setItem(getSeenCardsStorageKey(userId), JSON.stringify(value || {}));
   } catch {}
+}
+
+function getUserPreferencesStorageKey(userId) {
+  return `${USER_PREFS_KEY_PREFIX}${userId || ""}`;
+}
+
+function readUserPreferences(userId) {
+  if (!userId) return { ...DEFAULT_USER_PREFERENCES };
+  try {
+    const raw = localStorage.getItem(getUserPreferencesStorageKey(userId));
+    const parsed = raw ? JSON.parse(raw) : {};
+    return {
+      ...DEFAULT_USER_PREFERENCES,
+      highlightAssignedCards: parsed?.highlightAssignedCards !== false
+    };
+  } catch {
+    return { ...DEFAULT_USER_PREFERENCES };
+  }
+}
+
+function writeUserPreferences(userId, prefs) {
+  if (!userId) return;
+  const safe = {
+    ...DEFAULT_USER_PREFERENCES,
+    ...prefs,
+    highlightAssignedCards: prefs?.highlightAssignedCards !== false
+  };
+  try {
+    localStorage.setItem(getUserPreferencesStorageKey(userId), JSON.stringify(safe));
+  } catch {}
+}
+
+function ensureUserPreferencesLoaded() {
+  const userId = state.user?.id || null;
+  if (!userId) {
+    state.preferences = { ...DEFAULT_USER_PREFERENCES };
+    state.preferencesUserId = null;
+    return;
+  }
+  if (state.preferencesUserId === userId) return;
+  state.preferences = readUserPreferences(userId);
+  state.preferencesUserId = userId;
 }
 
 function readThemePreference() {
@@ -257,6 +308,41 @@ function escapeHtml(str) {
     .replaceAll('"', "&quot;");
 }
 
+function normalizeHexColor(hex, fallback = "#d9d9d9") {
+  const value = String(hex || "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(value)) return value;
+  return fallback;
+}
+
+function hexToRgb(hex) {
+  const safe = normalizeHexColor(hex).slice(1);
+  return {
+    r: parseInt(safe.slice(0, 2), 16),
+    g: parseInt(safe.slice(2, 4), 16),
+    b: parseInt(safe.slice(4, 6), 16)
+  };
+}
+
+function getReadableTextColor(hex) {
+  const { r, g, b } = hexToRgb(hex);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.62 ? "#111111" : "#ffffff";
+}
+
+function darkenHex(hex, factor = 0.62) {
+  const { r, g, b } = hexToRgb(hex);
+  const clamp = (n) => Math.max(0, Math.min(255, Math.round(n)));
+  const rr = clamp(r * factor).toString(16).padStart(2, "0");
+  const gg = clamp(g * factor).toString(16).padStart(2, "0");
+  const bb = clamp(b * factor).toString(16).padStart(2, "0");
+  return `#${rr}${gg}${bb}`;
+}
+
+function labelPillStyle(color) {
+  const safe = normalizeHexColor(color);
+  return `background:${safe};border-color:${darkenHex(safe)};color:${getReadableTextColor(safe)}`;
+}
+
 function renderInlineFormatting(text) {
   let html = escapeHtml(text ?? "");
   html = html.replace(/\*\*([^*\n][\s\S]*?)\*\*/g, "<strong>$1</strong>");
@@ -370,7 +456,7 @@ function ensureRealtimeConnection() {
         if (!state.user || !state.board) return;
         const tag = document.activeElement?.tagName;
         if (["INPUT", "TEXTAREA", "SELECT"].includes(tag)) return;
-        if (state.ui.modalCardId || state.ui.promptDialog || state.ui.labelsDialogOpen) return;
+        if (state.ui.modalCardId || state.ui.promptDialog || state.ui.labelsDialogOpen || state.ui.preferencesDialogOpen) return;
         refreshBoard().catch(() => {});
       } catch {}
     };
@@ -472,6 +558,9 @@ function renderLogin() {
 
 function createCardHtml(card, list) {
   const assigneeIds = Array.isArray(card.assigneeIds) ? card.assigneeIds : (card.assigneeId ? [card.assigneeId] : []);
+  const isAssignedToMe = Boolean(state.preferences?.highlightAssignedCards) &&
+    Boolean(state.user?.id) &&
+    assigneeIds.includes(state.user.id);
   const assignees = state.users.filter((u) => assigneeIds.includes(u.id));
   const desc = (card.description || "").trim();
   const checklist = Array.isArray(card.checklist) ? card.checklist : [];
@@ -496,25 +585,28 @@ function createCardHtml(card, list) {
   const isDoneList = String(list?.title || "").trim().toLowerCase() === "done";
   const timeInListText = isDoneList ? "" : formatCurrentListTotalTime(card, list);
   const dueClass = getDueDateUrgencyClass(dueDate);
+  const priorityBadge = priority ? `<span class="pill priority-${priority} priority-pill card-priority-corner">${escapeHtml(priority)}</span>` : "";
   const assigneeLine = assignees.length ? assignees.map((u) => u.name).join(", ") : "Unassigned";
   const assigneeSummary =
     assignees.length > 2 ? `${assignees.slice(0, 2).map((u) => u.name).join(", ")} +${assignees.length - 2}` : assigneeLine;
   return `
-    <article class="card compact-card ${isUpdated ? "card-updated" : ""}" draggable="true" data-card-id="${card.id}">
+    <article class="card compact-card ${isUpdated ? "card-updated" : ""} ${isAssignedToMe ? "card-assigned-to-me" : ""}" draggable="true" data-card-id="${card.id}">
       <div class="drag-handle" aria-hidden="true">::</div>
       <div class="card-main">
         ${isUpdated ? '<div class="updated-badge">Updated!</div>' : ""}
-        <div class="card-title-text">${escapeHtml(card.title)}</div>
+        <div class="card-title-row">
+          <div class="card-title-text">${escapeHtml(card.title)}</div>
+          ${priorityBadge}
+        </div>
         <div class="card-assignees-line">Assigned: ${escapeHtml(assigneeSummary)}</div>
         <div class="card-tags">
           ${labels
             .map(
               (label) =>
-                `<span class="pill label-pill" style="background:${escapeHtml(label.color || "#d9d9d9")};border-color:${escapeHtml(label.color || "#d9d9d9")}">${escapeHtml(label.name)}</span>`
+                `<span class="pill label-pill" style="${escapeHtml(labelPillStyle(label.color || "#d9d9d9"))}">${escapeHtml(label.name)}</span>`
             )
             .join("")}
-          ${priority ? `<span class="pill priority-${priority} priority-pill">${escapeHtml(priority)}</span>` : ""}
-          ${dueDate ? `<span class="pill ${dueClass}">${escapeHtml(dueDate)}</span>` : ""}
+          ${dueDate ? `<span class="pill ${dueClass}">${escapeHtml(formatDueTimeLeft(dueDate))}</span>` : ""}
           ${estimate ? `<span class="pill">Effort: ${escapeHtml(estimate)}h</span>` : ""}
         </div>
         ${desc ? `<div class="card-preview-block">${renderDescriptionHtml(desc)}</div>` : ""}
@@ -544,7 +636,10 @@ function createListHtml(list) {
   return `
     <section class="list" data-list-id="${list.id}">
       <div class="list-header">
-        <input class="list-title-input" maxlength="60" value="${escapeHtml(list.title)}" />
+        <div class="list-title-wrap">
+          <h2 class="list-title-text" title="${escapeHtml(list.title)}">${escapeHtml(list.title)}</h2>
+          <input class="list-title-input list-title-readonly" maxlength="60" value="${escapeHtml(list.title)}" readonly aria-readonly="true" hidden aria-hidden="true" />
+        </div>
         <button class="small-btn ghost add-card-inline-btn" title="Add card">Add Card</button>
         <div class="list-menu-wrap">
           <button class="small-btn ghost list-menu-btn" title="List options">&#8942;</button>
@@ -615,6 +710,22 @@ function getDueDateUrgencyClass(dueDate) {
   if (diffDays <= 2) return "due-soon";
   if (diffDays <= 7) return "due-upcoming";
   return "due-later";
+}
+
+function formatDueTimeLeft(dueDate) {
+  if (!dueDate) return "";
+  const dueAt = new Date(`${dueDate}T23:59:59`);
+  if (Number.isNaN(dueAt.getTime())) return "";
+  const diffMs = dueAt.getTime() - Date.now();
+  if (diffMs <= 0) return "Overdue";
+  const hourMs = 60 * 60 * 1000;
+  const dayMs = 24 * hourMs;
+  if (diffMs < dayMs) {
+    const hoursLeft = Math.max(1, Math.ceil(diffMs / hourMs));
+    return `${hoursLeft}h left`;
+  }
+  const daysLeft = Math.ceil(diffMs / dayMs);
+  return `${daysLeft}d left`;
 }
 
 function formatDurationMs(ms) {
@@ -708,7 +819,7 @@ function renderModal() {
         <section class="modal-card prompt-modal" role="dialog" aria-modal="true" aria-label="Labels">
           <div class="modal-header">
             <h3>Labels</h3>
-            <button class="small-btn ghost close-labels-btn" title="Close">Close</button>
+            <small class="modal-header-note">Click outside this window to save and close.</small>
           </div>
           <div class="labels-manager-list">
             ${
@@ -716,10 +827,9 @@ function renderModal() {
                 ? labels
                     .map(
                       (label) => `
-                <div class="label-edit-row" data-label-edit-id="${label.id}">
+                <div class="label-edit-row existing-label-row" data-label-edit-id="${label.id}">
                   <input class="label-edit-color" type="color" value="${escapeHtml(label.color || "#d9d9d9")}" />
                   <input class="label-edit-name" maxlength="30" value="${escapeHtml(label.name)}" />
-                  <button class="small-btn ghost save-label-edit-btn">Save</button>
                 </div>
               `
                     )
@@ -741,25 +851,40 @@ function renderModal() {
     host.querySelector("[data-close-labels]").addEventListener("click", (e) => {
       if (e.target.dataset.closeLabels === "1") closeLabelsDialog();
     });
-    host.querySelector(".close-labels-btn").addEventListener("click", closeLabelsDialog);
     host.querySelector(".modal-card").addEventListener("click", (e) => e.stopPropagation());
-    host.querySelectorAll(".save-label-edit-btn").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const row = btn.closest("[data-label-edit-id]");
-        const labelId = row?.dataset.labelEditId;
-        const name = row?.querySelector(".label-edit-name")?.value || "";
-        const color = row?.querySelector(".label-edit-color")?.value || "#d9d9d9";
-        if (!labelId) return;
-        try {
-          const data = await api(`/api/labels/${labelId}`, {
-            method: "PATCH",
-            body: JSON.stringify({ name, color })
-          });
-          applyData(data);
-          state.ui.labelsDialogOpen = true;
-          render();
-        } catch (err) {
-          alert(err.message);
+    const saveLabelEditRow = async (row) => {
+      const labelId = row?.dataset.labelEditId;
+      const nameInput = row?.querySelector(".label-edit-name");
+      const colorInput = row?.querySelector(".label-edit-color");
+      if (!labelId || !nameInput || !colorInput) return;
+      const name = String(nameInput.value || "").trim();
+      const color = String(colorInput.value || "#d9d9d9");
+      const prevName = String(row.dataset.savedName || "");
+      const prevColor = String(row.dataset.savedColor || "");
+      if (name === prevName && color === prevColor) return;
+      try {
+        const data = await api(`/api/labels/${labelId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ name, color })
+        });
+        applyData(data);
+        state.ui.labelsDialogOpen = true;
+        render();
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+    host.querySelectorAll(".label-edit-row[data-label-edit-id]").forEach((row) => {
+      const nameInput = row.querySelector(".label-edit-name");
+      const colorInput = row.querySelector(".label-edit-color");
+      row.dataset.savedName = String(nameInput?.value || "").trim();
+      row.dataset.savedColor = String(colorInput?.value || "#d9d9d9");
+      nameInput?.addEventListener("change", () => saveLabelEditRow(row));
+      colorInput?.addEventListener("change", () => saveLabelEditRow(row));
+      nameInput?.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          nameInput.blur();
         }
       });
     });
@@ -777,6 +902,63 @@ function renderModal() {
       } catch (err) {
         alert(err.message);
       }
+    });
+    return;
+  }
+  if (state.ui.preferencesDialogOpen) {
+    host.innerHTML = `
+      <div class="modal-backdrop" data-close-preferences="1">
+        <section class="modal-card prompt-modal" role="dialog" aria-modal="true" aria-label="Preferences">
+          <div class="modal-header">
+            <h3>Preferences</h3>
+            <button class="small-btn ghost close-preferences-btn" title="Close">Close</button>
+          </div>
+          <div class="preferences-list">
+            <label class="preferences-item">
+              <span class="preferences-copy">
+                <strong>Highlight tasks assigned to me</strong>
+                <small>Show a darker border and background for my assigned tasks.</small>
+              </span>
+              <input id="prefHighlightAssignedCards" type="checkbox" ${state.preferences?.highlightAssignedCards ? "checked" : ""} />
+            </label>
+            <label class="preferences-item">
+              <span class="preferences-copy">
+                <strong>Show activity panel</strong>
+                <small>Display recent board activity section.</small>
+              </span>
+              <input id="prefShowActivityPanel" type="checkbox" ${state.ui.showActivity ? "checked" : ""} />
+            </label>
+            <label class="preferences-item">
+              <span class="preferences-copy">
+                <strong>Show archive panel</strong>
+                <small>Display archived cards section.</small>
+              </span>
+              <input id="prefShowArchivePanel" type="checkbox" ${state.ui.showArchive ? "checked" : ""} />
+            </label>
+          </div>
+        </section>
+      </div>
+    `;
+    host.querySelector("[data-close-preferences]").addEventListener("click", (e) => {
+      if (e.target.dataset.closePreferences === "1") closePreferencesDialog();
+    });
+    host.querySelector(".close-preferences-btn").addEventListener("click", closePreferencesDialog);
+    host.querySelector(".modal-card").addEventListener("click", (e) => e.stopPropagation());
+    document.getElementById("prefHighlightAssignedCards")?.addEventListener("change", (e) => {
+      state.preferences = {
+        ...state.preferences,
+        highlightAssignedCards: Boolean(e.target.checked)
+      };
+      writeUserPreferences(state.user?.id, state.preferences);
+      render();
+    });
+    document.getElementById("prefShowActivityPanel")?.addEventListener("change", (e) => {
+      state.ui.showActivity = Boolean(e.target.checked);
+      render();
+    });
+    document.getElementById("prefShowArchivePanel")?.addEventListener("change", (e) => {
+      state.ui.showArchive = Boolean(e.target.checked);
+      render();
     });
     return;
   }
@@ -833,7 +1015,7 @@ function renderModal() {
   if (!Array.isArray(card.checklist)) card.checklist = [];
   if (!Array.isArray(card.labelIds)) card.labelIds = [];
   if (!Array.isArray(card.assigneeIds)) card.assigneeIds = card.assigneeId ? [card.assigneeId] : [];
-  if (!["", "low", "medium", "high"].includes(card.priority || "")) card.priority = "";
+  if (!["", "low", "medium", "high", "critical"].includes(card.priority || "")) card.priority = "";
   if (typeof card.dueDate !== "string") card.dueDate = "";
   if (typeof card.estimate !== "string") card.estimate = "";
   const currentList = state.board.lists.find((l) => l.cardIds.includes(card.id));
@@ -846,7 +1028,7 @@ function renderModal() {
       <section class="modal-card" role="dialog" aria-modal="true" aria-label="Card details">
         <div class="modal-header">
           <h3>Card Details</h3>
-          <button class="small-btn ghost close-modal-btn" title="Close">Close</button>
+          <small class="modal-header-note">Click outside this window to save and close.</small>
         </div>
         <div class="modal-grid">
           <label>
@@ -868,6 +1050,7 @@ function renderModal() {
               <option value="low" ${card.priority === "low" ? "selected" : ""}>Low</option>
               <option value="medium" ${card.priority === "medium" ? "selected" : ""}>Medium</option>
               <option value="high" ${card.priority === "high" ? "selected" : ""}>High</option>
+              <option value="critical" ${card.priority === "critical" ? "selected" : ""}>Critical</option>
             </select>
           </label>
           <label>
@@ -878,24 +1061,24 @@ function renderModal() {
             <span>Estimate Effort</span>
             <input id="modalCardEstimate" maxlength="30" placeholder="e.g. 2h / 3 pts" value="${escapeHtml(card.estimate || "")}" />
           </label>
-          <label class="full">
+          <div class="full modal-field">
             <span>Description</span>
             <div class="description-toolbar" role="toolbar" aria-label="Description formatting">
-              <button type="button" class="small-btn ghost desc-format-btn" data-format="bold" title="Bold (Ctrl/Cmd+B)"><strong>B</strong></button>
-              <button type="button" class="small-btn ghost desc-format-btn" data-format="italic" title="Italic (Ctrl/Cmd+I)"><em>I</em></button>
+              <button type="button" class="ghost desc-format-btn" data-format="bold" title="Bold (Ctrl/Cmd+B)"><strong>B</strong></button>
+              <button type="button" class="ghost desc-format-btn" data-format="italic" title="Italic (Ctrl/Cmd+I)"><em>I</em></button>
             </div>
             <textarea id="modalCardDescription" maxlength="500" placeholder="Description">${escapeHtml(card.description || "")}</textarea>
-          </label>
+          </div>
           <div class="full checklist-section">
             <div class="checklist-header">
               <span>Labels</span>
+              <span class="modal-label-controls">
+                <span id="modalToggleLabelsBtn" class="modal-label-toggle-symbol" role="button" tabindex="0" aria-expanded="true" aria-label="Collapse labels" title="Collapse labels">^</span>
+              </span>
             </div>
-            <details class="modal-dropdown">
-              <summary class="modal-dropdown-summary">${escapeHtml(formatLabelSummaryForModal(card.labelIds))}</summary>
-              <div id="modalLabelItems" class="label-options modal-dropdown-content">
-                ${renderCardLabelOptions(card.labelIds)}
-              </div>
-            </details>
+            <div id="modalLabelsContent" class="modal-labels-content">
+              <div id="modalLabelItems" class="modal-label-picker">${renderCardLabelOptions(card.labelIds)}</div>
+            </div>
           </div>
           <div class="full checklist-section">
             <div class="checklist-header">
@@ -911,7 +1094,7 @@ function renderModal() {
           <small>Created: ${escapeHtml(formatTime(card.createdAt || ""))} by ${escapeHtml(card.createdByName || findUserName(card.createdById) || "Unknown")}</small>
           <small>Updated: ${escapeHtml(formatTime(card.updatedAt || ""))}</small>
         </div>
-        <div class="modal-actions">
+        <div class="modal-actions card-modal-actions">
           <button id="modalDeleteCardBtn" class="danger">Archive Card</button>
         </div>
       </section>
@@ -921,14 +1104,17 @@ function renderModal() {
   host.querySelector("[data-close-modal]").addEventListener("click", async (e) => {
     if (e.target.dataset.closeModal === "1") await closeCardModal();
   });
-  host.querySelector(".close-modal-btn").addEventListener("click", () => closeCardModal());
   host.querySelector(".modal-card").addEventListener("click", (e) => e.stopPropagation());
   document.getElementById("modalDeleteCardBtn").addEventListener("click", deleteModalCard);
   const descriptionTextarea = document.getElementById("modalCardDescription");
   host.querySelectorAll(".desc-format-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const mode = btn.dataset.format;
-      applyTextareaWrapperShortcut(descriptionTextarea, mode === "bold" ? "**" : "*");
+      if (mode === "bold") {
+        applyTextareaWrapperShortcut(descriptionTextarea, "**");
+      } else if (mode === "italic") {
+        applyTextareaWrapperShortcut(descriptionTextarea, "*");
+      }
     });
   });
   descriptionTextarea?.addEventListener("keydown", (e) => {
@@ -942,6 +1128,32 @@ function renderModal() {
     } else if (k === "i") {
       e.preventDefault();
       applyTextareaWrapperShortcut(descriptionTextarea, "*");
+    }
+  });
+  const modalLabelItems = document.getElementById("modalLabelItems");
+  modalLabelItems?.addEventListener("click", (e) => {
+    const choiceBtn = e.target.closest(".modal-label-choice");
+    if (!choiceBtn) return;
+    const nextPressed = choiceBtn.getAttribute("aria-pressed") !== "true";
+    choiceBtn.setAttribute("aria-pressed", nextPressed ? "true" : "false");
+    choiceBtn.classList.toggle("selected", nextPressed);
+  });
+  const toggleLabelsBtn = document.getElementById("modalToggleLabelsBtn");
+  const labelsContentEl = document.getElementById("modalLabelsContent");
+  const toggleLabelPickerVisibility = () => {
+    if (!labelsContentEl) return;
+    const nextHidden = !labelsContentEl.hidden;
+    labelsContentEl.hidden = nextHidden;
+    toggleLabelsBtn.textContent = nextHidden ? "v" : "^";
+    toggleLabelsBtn.setAttribute("aria-label", nextHidden ? "Expand labels" : "Collapse labels");
+    toggleLabelsBtn.setAttribute("title", nextHidden ? "Expand labels" : "Collapse labels");
+    toggleLabelsBtn.setAttribute("aria-expanded", nextHidden ? "false" : "true");
+  };
+  toggleLabelsBtn?.addEventListener("click", toggleLabelPickerVisibility);
+  toggleLabelsBtn?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggleLabelPickerVisibility();
     }
   });
   document.getElementById("modalAddChecklistItemBtn").addEventListener("click", () => {
@@ -984,16 +1196,21 @@ function renderChecklistItems(items) {
   return items.map((item) => checklistItemRowHtml(item)).join("");
 }
 
-function renderCardLabelOptions(selectedLabelIds, asSelect = false) {
+function renderCardLabelOptions(selectedLabelIds) {
   const labels = state.board?.labels || [];
   if (!labels.length) return '<div class="hint">No labels created yet.</div>';
   return labels
     .map(
       (label) => `
-      <label class="label-option-row" data-label-id="${label.id}">
-        <input class="modal-label-checkbox" type="checkbox" value="${label.id}" ${selectedLabelIds.includes(label.id) ? "checked" : ""} />
-        <span class="pill label-pill" style="background:${escapeHtml(label.color || "#d9d9d9")};border-color:${escapeHtml(label.color || "#d9d9d9")}">${escapeHtml(label.name)}</span>
-      </label>
+      <button
+        type="button"
+        class="modal-label-choice ${selectedLabelIds.includes(label.id) ? "selected" : ""}"
+        data-label-id="${label.id}"
+        aria-pressed="${selectedLabelIds.includes(label.id) ? "true" : "false"}"
+      >
+        <span class="modal-label-color" style="background:${escapeHtml(label.color || "#d9d9d9")}"></span>
+        <span class="modal-label-name">${escapeHtml(label.name)}</span>
+      </button>
     `
     )
     .join("");
@@ -1010,11 +1227,10 @@ function renderAssigneeSelectOptions(selectedAssigneeIds) {
     .join("");
 }
 
-function formatLabelSummaryForModal(selectedLabelIds) {
-  const names = (state.board?.labels || []).filter((l) => selectedLabelIds.includes(l.id)).map((l) => l.name);
-  if (!names.length) return "Select labels";
-  if (names.length <= 2) return names.join(", ");
-  return `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
+function getSelectedLabelIdsFromPicker() {
+  return [...document.querySelectorAll("#modalLabelItems .modal-label-choice[aria-pressed=\"true\"]")]
+    .map((el) => String(el.dataset.labelId || ""))
+    .filter(Boolean);
 }
 
 function collectChecklistFromModal(cardId) {
@@ -1037,7 +1253,7 @@ function collectChecklistFromModal(cardId) {
 }
 
 function collectLabelIdsFromModal() {
-  return [...document.querySelectorAll("#modalLabelItems .modal-label-checkbox:checked")].map((el) => el.value);
+  return getSelectedLabelIdsFromPicker();
 }
 
 function collectAssigneeIdFromModal() {
@@ -1055,8 +1271,6 @@ function renderBoard() {
   const listCount = state.board.lists.length || 1;
   listsContainer.style.setProperty("--list-columns", String(Math.max(1, Math.min(4, listCount))));
   listsContainer.classList.toggle("scrollable-lists", listCount > 4);
-  document.getElementById("toggleActivityBtn").textContent = state.ui.showActivity ? "Hide Activity" : "Show Activity";
-  document.getElementById("toggleArchiveBtn").textContent = state.ui.showArchive ? "Hide Archive" : "Show Archive";
   renderArchive();
   renderActivity();
   renderModal();
@@ -1067,6 +1281,7 @@ function renderBoard() {
 function render() {
   updateSessionInfo();
   applyTheme(document.documentElement.dataset.theme || readThemePreference());
+  ensureUserPreferencesLoaded();
   if (!state.user || !state.board) return renderLogin();
   renderBoard();
 }
@@ -1089,6 +1304,11 @@ function forceCloseCardModal() {
 
 function closeLabelsDialog() {
   state.ui.labelsDialogOpen = false;
+  render();
+}
+
+function closePreferencesDialog() {
+  state.ui.preferencesDialogOpen = false;
   render();
 }
 
@@ -1280,7 +1500,9 @@ function attachBoardHandlers() {
       state.activeUsers = [];
       state.csrfToken = null;
       closeRealtimeConnection();
-      state.ui = { openListMenuId: null, openAddCardListId: null, modalCardId: null, dragCardId: null, unseenUpdatedCardIds: new Set(), enteringCardIds: new Set(), enteringListIds: new Set(), showActivity: false, showArchive: false, promptDialog: null, labelsDialogOpen: false };
+      state.ui = { openListMenuId: null, openAddCardListId: null, modalCardId: null, dragCardId: null, unseenUpdatedCardIds: new Set(), enteringCardIds: new Set(), enteringListIds: new Set(), showActivity: false, showArchive: false, promptDialog: null, labelsDialogOpen: false, preferencesDialogOpen: false };
+      state.preferences = { ...DEFAULT_USER_PREFERENCES };
+      state.preferencesUserId = null;
       render();
     } catch (err) {
       alert(err.message);
@@ -1311,13 +1533,8 @@ function attachBoardHandlers() {
     state.ui.labelsDialogOpen = true;
     render();
   });
-  document.getElementById("toggleActivityBtn").addEventListener("click", () => {
-    state.ui.showActivity = !state.ui.showActivity;
-    render();
-  });
-
-  document.getElementById("toggleArchiveBtn").addEventListener("click", () => {
-    state.ui.showArchive = !state.ui.showArchive;
+  document.getElementById("preferencesBtn").addEventListener("click", () => {
+    state.ui.preferencesDialogOpen = true;
     render();
   });
 
@@ -1333,30 +1550,59 @@ function attachBoardHandlers() {
 
   document.querySelectorAll(".list").forEach((listEl) => {
     const listId = listEl.dataset.listId;
+    const titleText = listEl.querySelector(".list-title-text");
     const titleInput = listEl.querySelector(".list-title-input");
-
+    const setTitleReadonly = (value) => {
+      if (typeof value === "string") {
+        titleInput.value = value;
+        if (titleText) titleText.textContent = value;
+      }
+      titleInput.readOnly = true;
+      titleInput.setAttribute("aria-readonly", "true");
+      titleInput.classList.add("list-title-readonly");
+      titleInput.classList.remove("list-title-editing");
+      titleInput.hidden = true;
+      titleInput.setAttribute("aria-hidden", "true");
+      if (titleText) titleText.hidden = false;
+    };
     titleInput.addEventListener("blur", async () => {
-      const nextTitle = titleInput.value.trim();
       const current = state.board.lists.find((l) => l.id === listId);
       if (!current) return;
-      if (!nextTitle) {
+      if (titleInput.readOnly) {
         titleInput.value = current.title;
         return;
       }
-      if (nextTitle === current.title) return;
+      const nextTitle = titleInput.value.trim();
+      if (!nextTitle) {
+        setTitleReadonly(current.title);
+        return;
+      }
+      if (nextTitle === current.title) {
+        setTitleReadonly(current.title);
+        return;
+      }
       try {
         const data = await api(`/api/lists/${listId}`, {
           method: "PATCH",
           body: JSON.stringify({ title: nextTitle })
         });
+        setTitleReadonly(nextTitle);
         applyData(data);
       } catch (err) {
+        setTitleReadonly(current.title);
         alert(err.message);
       }
     });
     titleInput.addEventListener("keydown", (e) => {
+      if (titleInput.readOnly) return;
       if (e.key === "Enter") {
         e.preventDefault();
+        titleInput.blur();
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        const current = state.board.lists.find((l) => l.id === listId);
+        setTitleReadonly(current?.title || "");
         titleInput.blur();
       }
     });
@@ -1381,9 +1627,18 @@ function attachBoardHandlers() {
         state.ui.openListMenuId = null;
         render();
         requestAnimationFrame(() => {
-          const refreshed = document.querySelector(`.list[data-list-id="${listId}"] .list-title-input`);
-          refreshed?.focus();
-          refreshed?.select();
+          const refreshedInput = document.querySelector(`.list[data-list-id="${listId}"] .list-title-input`);
+          const refreshedText = document.querySelector(`.list[data-list-id="${listId}"] .list-title-text`);
+          if (!refreshedInput || !refreshedText) return;
+          refreshedInput.readOnly = false;
+          refreshedInput.setAttribute("aria-readonly", "false");
+          refreshedInput.classList.remove("list-title-readonly");
+          refreshedInput.classList.add("list-title-editing");
+          refreshedInput.hidden = false;
+          refreshedInput.setAttribute("aria-hidden", "false");
+          refreshedText.hidden = true;
+          refreshedInput.focus();
+          refreshedInput.select();
         });
       });
     }
@@ -1492,7 +1747,7 @@ function attachBoardHandlers() {
     });
   });
 
-  if (state.ui.modalCardId) {
+  if (state.ui.modalCardId || state.ui.preferencesDialogOpen) {
     document.addEventListener("keydown", handleEscapeModal, { once: true });
   }
 }
@@ -1506,6 +1761,10 @@ function handleOutsideMenuClick(e) {
 }
 
 function handleEscapeModal(e) {
+  if (e.key === "Escape" && state.ui.preferencesDialogOpen) {
+    closePreferencesDialog();
+    return;
+  }
   if (e.key === "Escape" && state.ui.modalCardId) {
     closeCardModal().catch(() => {});
   }
@@ -1529,7 +1788,7 @@ setInterval(() => {
   if (!state.user || !state.board) return;
   const tag = document.activeElement?.tagName;
   if (["INPUT", "TEXTAREA", "SELECT"].includes(tag)) return;
-  if (state.ui.modalCardId) return;
+  if (state.ui.modalCardId || state.ui.preferencesDialogOpen) return;
   refreshBoard().catch(() => {});
 }, 60000);
 

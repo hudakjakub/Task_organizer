@@ -284,7 +284,7 @@ select {
   color: var(--link-btn-hover);
 }
 
-#logoutBtn {
+#preferencesBtn {
   margin-left: auto;
 }
 
@@ -415,6 +415,12 @@ button.danger:hover {
   background: #262b33;
 }
 
+:root[data-theme="dark"] .compact-card.card-assigned-to-me {
+  border-color: #d0d0d0;
+  box-shadow: 0 0 0 1px rgba(208, 208, 208, 0.5), var(--shadow-soft);
+  background: #2a2b2d;
+}
+
 :root[data-theme="dark"] .drag-handle,
 :root[data-theme="dark"] .card-assignees-line,
 :root[data-theme="dark"] .card-preview,
@@ -425,6 +431,7 @@ button.danger:hover {
 :root[data-theme="dark"] .card-footer-right,
 :root[data-theme="dark"] .card-created-by,
 :root[data-theme="dark"] .modal-grid label span,
+:root[data-theme="dark"] .modal-grid .modal-field span,
 :root[data-theme="dark"] .modal-meta,
 :root[data-theme="dark"] .checklist-header span {
   color: var(--muted);
@@ -455,20 +462,30 @@ button.danger:hover {
 
 :root[data-theme="dark"] .priority-low,
 :root[data-theme="dark"] .priority-medium,
+:root[data-theme="dark"] .priority-high,
 :root[data-theme="dark"] .due-later,
 :root[data-theme="dark"] .due-upcoming {
-  background: #292a2d;
-  border-color: #5f6368;
+  background: #24262a;
+  border-color: #4a4f56;
+  color: #e8eaed;
 }
 
 :root[data-theme="dark"] .priority-medium {
-  background: #303134;
+  background: #4f5359;
+  border-color: #7d838a;
+  color: #f2f3f5;
 }
 
 :root[data-theme="dark"] .priority-high {
-  background: #8ab4f8;
-  color: #202124;
-  border-color: #8ab4f8;
+  background: #aeb4bc;
+  border-color: #d3d7dc;
+  color: #111;
+}
+
+:root[data-theme="dark"] .priority-critical {
+  background: #b3261e;
+  color: #fff;
+  border-color: #f28b82;
 }
 
 :root[data-theme="dark"] .due-soon {
@@ -513,15 +530,19 @@ button.danger:hover {
   outline-color: #5f87c9;
 }
 
-:root[data-theme="dark"] .modal-dropdown-summary,
-:root[data-theme="dark"] .label-option-row {
+:root[data-theme="dark"] .modal-label-choice {
   background: var(--surface);
   color: var(--ink);
   border-color: var(--line);
 }
 
-:root[data-theme="dark"] .modal-dropdown[open] .modal-dropdown-summary {
+:root[data-theme="dark"] .modal-label-choice:hover {
+  border-color: #9aa0a6;
+}
+
+:root[data-theme="dark"] .modal-label-choice.selected {
   border-color: #d9dce1;
+  box-shadow: 0 0 0 1px #d9dce1;
 }
 
 .lists {
@@ -549,7 +570,7 @@ button.danger:hover {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 12px;
+  padding: 12px 17px;
   box-shadow: var(--shadow);
   align-self: flex-start;
   transition: border-color 180ms ease, box-shadow 220ms ease, background-color 180ms ease;
@@ -563,7 +584,24 @@ button.danger:hover {
   margin-bottom: 8px;
 }
 
-.list-header input {
+.list-title-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-title-text {
+  margin: 0;
+  font-weight: 600;
+  font-size: 1.05rem;
+  padding: 4px 0;
+  color: var(--ink);
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.list-header .list-title-input {
   flex: 1;
   font-weight: 600;
   font-size: 1.05rem;
@@ -577,6 +615,14 @@ button.danger:hover {
 .list-header .list-title-input:focus {
   outline: none;
   box-shadow: inset 0 -1px 0 var(--accent);
+}
+
+.list-header .list-title-input[readonly] {
+  cursor: default;
+}
+
+.list-header .list-title-input[readonly]:focus {
+  box-shadow: none;
 }
 
 .list-header .add-card-inline-btn,
@@ -656,7 +702,7 @@ button.danger:hover {
 .card {
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 10px;
+  padding: 7px 10px;
   background: #ffffff;
   display: grid;
   gap: 8px;
@@ -702,6 +748,12 @@ button.danger:hover {
   background: #fafafa;
 }
 
+.compact-card.card-assigned-to-me {
+  border-color: #2a2a2a;
+  box-shadow: 0 0 0 1px rgba(42, 42, 42, 0.35), var(--shadow-soft);
+  background: #f1f1f1;
+}
+
 .compact-card.dragging {
   opacity: 0.5;
 }
@@ -717,10 +769,22 @@ button.danger:hover {
   min-width: 0;
 }
 
+.card-title-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+
 .card-title-text {
   font-weight: 700;
   line-height: 1.25;
   margin-bottom: 6px;
+}
+
+.card-priority-corner {
+  justify-self: end;
+  align-self: start;
 }
 
 .card-assignees-line {
@@ -775,21 +839,32 @@ button.danger:hover {
 .label-pill {
   border-style: solid;
   color: #111;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
 .priority-low {
-  background: #f7f7f7;
+  background: #fafafa;
+  border-color: #d7d7d7;
+  color: #222;
 }
 
 .priority-medium {
-  background: #efefef;
-  border-color: #bdbdbd;
+  background: #d4d4d4;
+  border-color: #9a9a9a;
+  color: #1a1a1a;
 }
 
 .priority-high {
-  background: #111;
+  background: #8a8a8a;
+  border-color: #5f5f5f;
   color: #fff;
-  border-color: #111;
+}
+
+.priority-critical {
+  background: #c1121f;
+  color: #fff;
+  border-color: #c1121f;
 }
 
 .due-later {
@@ -908,9 +983,9 @@ button.danger:hover {
   font-size: 0.74rem;
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-end;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .card-footer-right {
@@ -922,7 +997,7 @@ button.danger:hover {
 }
 
 .card-created-by {
-  margin-top: 4px;
+  margin-top: 5px;
   color: #666;
   font-size: 0.72rem;
 }
@@ -1062,6 +1137,15 @@ button.danger:hover {
   font-size: 1.05rem;
 }
 
+.modal-header-note {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-align: right;
+  line-height: 1.2;
+  max-width: 320px;
+}
+
 .modal-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1073,7 +1157,18 @@ button.danger:hover {
   gap: 6px;
 }
 
+.modal-grid .modal-field {
+  display: grid;
+  gap: 6px;
+}
+
 .modal-grid label span {
+  font-size: 0.85rem;
+  color: #444;
+  font-weight: 600;
+}
+
+.modal-grid .modal-field span {
   font-size: 0.85rem;
   color: #444;
   font-weight: 600;
@@ -1090,9 +1185,14 @@ button.danger:hover {
   margin-top: 12px;
 }
 
+.card-modal-actions {
+  justify-content: flex-end;
+}
+
 .modal-meta {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-start;
   gap: 10px 16px;
   margin-top: 10px;
   color: #666;
@@ -1126,21 +1226,39 @@ button.danger:hover {
   gap: 6px;
 }
 
-.label-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.preferences-list {
+  display: grid;
+  gap: 10px;
 }
 
-.label-option-row {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid #e4e4e4;
-  border-radius: 999px;
-  padding: 4px 8px;
-  background: #fff;
-  cursor: pointer;
+.preferences-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.preferences-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.preferences-copy strong {
+  font-size: 0.92rem;
+}
+
+.preferences-copy small {
+  color: var(--muted);
+}
+
+.preferences-item input[type="checkbox"] {
+  margin-top: 2px;
+  width: 16px;
+  height: 16px;
 }
 
 .labels-manager-list {
@@ -1149,31 +1267,57 @@ button.danger:hover {
   margin-bottom: 12px;
 }
 
-.modal-dropdown {
-  margin-top: 6px;
+.modal-label-controls {
+  display: inline-flex;
+  gap: 8px;
 }
 
-.modal-dropdown-summary {
-  list-style: none;
-  cursor: pointer;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 10px;
-  background: #fff;
-  color: #222;
-  font-size: 0.9rem;
-}
-
-.modal-dropdown-summary::-webkit-details-marker {
+.modal-labels-content[hidden] {
   display: none;
 }
 
-.modal-dropdown[open] .modal-dropdown-summary {
-  border-color: #000;
+.modal-label-picker {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
 }
 
-.modal-dropdown-content {
-  margin-top: 8px;
+.modal-label-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fff;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.modal-label-choice:hover {
+  border-color: #8c8c8c;
+}
+
+.modal-label-choice.selected {
+  border-color: #000;
+  box-shadow: 0 0 0 1px #000;
+}
+
+.modal-label-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  flex: 0 0 12px;
+}
+
+.modal-label-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.2;
 }
 
 .label-edit-row {
@@ -1181,6 +1325,10 @@ button.danger:hover {
   grid-template-columns: 44px 1fr auto;
   gap: 8px;
   align-items: center;
+}
+
+.existing-label-row {
+  grid-template-columns: 44px 1fr;
 }
 
 .label-edit-color {
@@ -1192,11 +1340,6 @@ button.danger:hover {
 
 .label-edit-name {
   width: 100%;
-}
-
-.label-option-row input {
-  margin: 0;
-  min-width: 14px;
 }
 
 .checklist-row {
@@ -1228,7 +1371,7 @@ button.danger:hover {
     text-align: left;
   }
 
-  #logoutBtn {
+  #preferencesBtn {
     margin-left: 0;
   }
 
@@ -1358,9 +1501,45 @@ button.danger:hover {
 }
 
 .description-toolbar .desc-format-btn {
-  min-width: 28px;
-  min-height: 24px;
-  padding: 0 6px;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+  line-height: 1;
+  user-select: none;
+}
+
+.description-toolbar .desc-format-btn strong,
+.description-toolbar .desc-format-btn em {
+  pointer-events: none;
+}
+
+.modal-label-toggle-symbol {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  color: var(--link-btn);
+  cursor: pointer;
+  user-select: none;
+  line-height: 1;
+}
+
+.modal-label-toggle-symbol:hover {
+  color: var(--link-btn-hover);
+}
+
+.modal-label-toggle-symbol:focus-visible {
+  outline: 1px solid var(--line);
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 
 .activity-day-group {
