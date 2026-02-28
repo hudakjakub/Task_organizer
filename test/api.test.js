@@ -130,3 +130,58 @@ test("login rate limiting blocks repeated failures and writes auth audit logs", 
     await tctx.close();
   }
 });
+
+test("card priority accepts critical and rejects invalid values", async () => {
+  const tctx = await startServer();
+  try {
+    const reg = await apiFetch(tctx.baseUrl, "/api/register", {
+      method: "POST",
+      body: { username: "Dana", password: "StrongPass123", rememberMe: false }
+    });
+    assert.equal(reg.res.status, 201);
+    const cookie = (reg.res.headers.get("set-cookie") || "").split(";")[0];
+    const csrf = reg.json.csrfToken;
+    assert.ok(cookie);
+    assert.ok(csrf);
+
+    const createList = await apiFetch(tctx.baseUrl, "/api/lists", {
+      method: "POST",
+      cookie,
+      csrf,
+      body: { title: "Todo" }
+    });
+    assert.equal(createList.res.status, 201);
+    const listId = createList.json.board.lists.find((l) => l.title === "Todo")?.id;
+    assert.ok(listId);
+
+    const createCard = await apiFetch(tctx.baseUrl, "/api/cards", {
+      method: "POST",
+      cookie,
+      csrf,
+      body: { title: "Urgent fix", listId }
+    });
+    assert.equal(createCard.res.status, 201);
+    const cardId = Object.values(createCard.json.board.cards).find((c) => c.title === "Urgent fix")?.id;
+    assert.ok(cardId);
+
+    const setCritical = await apiFetch(tctx.baseUrl, `/api/cards/${cardId}`, {
+      method: "PATCH",
+      cookie,
+      csrf,
+      body: { priority: "critical" }
+    });
+    assert.equal(setCritical.res.status, 200);
+    assert.equal(setCritical.json.board.cards[cardId].priority, "critical");
+
+    const setInvalid = await apiFetch(tctx.baseUrl, `/api/cards/${cardId}`, {
+      method: "PATCH",
+      cookie,
+      csrf,
+      body: { priority: "urgent" }
+    });
+    assert.equal(setInvalid.res.status, 400);
+    assert.match(String(setInvalid.json.error || ""), /Invalid priority/i);
+  } finally {
+    await tctx.close();
+  }
+});

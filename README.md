@@ -2,7 +2,7 @@
 
 A Trello-like multi-user task organizer web app built with plain Node.js and vanilla frontend code.
 
-Version: `v0.6.2`
+Version: `v1.1.14`
 
 ## Features
 
@@ -46,6 +46,18 @@ Tests currently cover:
 - register/login (sanitized responses + remember me cookie)
 - CSRF protection on board mutations
 - login rate limiting + auth audit log writes
+- card priority validation (`critical` accepted, invalid values rejected)
+
+## CI/CD
+
+- CI (`.github/workflows/ci.yml`)
+  - Runs on push/PR to `main`
+  - Validates syntax (`server.js`, `public/app.js`)
+  - Runs test suite (`npm test`) on Node 20 and 22
+- CD (`.github/workflows/cd.yml`)
+  - Runs on tag push matching `v*`
+  - Builds and pushes Docker image to GHCR:
+    - `ghcr.io/<owner>/task-organizer`
 
 ## Project Structure
 

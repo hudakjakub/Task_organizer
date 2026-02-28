@@ -31,7 +31,7 @@ const activeUsersInfoEl = document.getElementById("activeUsersInfo");
 const toastHostEl = document.getElementById("toastHost");
 const appVersionEl = document.getElementById("appVersion");
 const themeToggleBtn = document.getElementById("themeToggleBtn");
-const APP_VERSION_FALLBACK = "1.1.13";
+const APP_VERSION_FALLBACK = "1.1.14";
 const THEME_STORAGE_KEY = "task-organizer:theme";
 const USER_PREFS_KEY_PREFIX = "task-organizer:prefs:";
 const THEME_ICON_MOON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.2A8.5 8.5 0 0 1 9.8 4 9 9 0 1 0 20 14.2Z"></path></svg>';
