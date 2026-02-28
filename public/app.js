@@ -20,7 +20,8 @@ const state = {
     preferencesDialogOpen: false
   },
   preferences: {
-    highlightAssignedCards: true
+    highlightAssignedCards: true,
+    cardWidthScale: 133
   },
   preferencesUserId: null
 };
@@ -31,7 +32,7 @@ const activeUsersInfoEl = document.getElementById("activeUsersInfo");
 const toastHostEl = document.getElementById("toastHost");
 const appVersionEl = document.getElementById("appVersion");
 const themeToggleBtn = document.getElementById("themeToggleBtn");
-const APP_VERSION_FALLBACK = "1.1.14";
+const APP_VERSION_FALLBACK = "1.1.21";
 const THEME_STORAGE_KEY = "task-organizer:theme";
 const USER_PREFS_KEY_PREFIX = "task-organizer:prefs:";
 const THEME_ICON_MOON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.2A8.5 8.5 0 0 1 9.8 4 9 9 0 1 0 20 14.2Z"></path></svg>';
@@ -39,9 +40,58 @@ const THEME_ICON_SUN = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="
 let realtimeSocket = null;
 let realtimeReconnectTimer = null;
 let toastSeq = 0;
+let listLayoutFrameRequested = false;
 const DEFAULT_USER_PREFERENCES = Object.freeze({
-  highlightAssignedCards: true
+  highlightAssignedCards: true,
+  cardWidthScale: 133
 });
+
+function normalizeCardWidthScale(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 133;
+  return Math.max(85, Math.min(180, Math.round(num)));
+}
+
+function getListWidthPx(scale) {
+  const safeScale = normalizeCardWidthScale(scale);
+  return Math.round((260 * safeScale) / 100);
+}
+
+function applyResponsiveListsLayout(listsContainer) {
+  if (!listsContainer) return;
+  const listCount = state.board?.lists?.length || 0;
+  const safeScale = normalizeCardWidthScale(state.preferences?.cardWidthScale);
+  const listWidth = getListWidthPx(safeScale);
+  const gap = 12;
+
+  listsContainer.style.setProperty("--board-width-scale", String(safeScale / 100));
+  listsContainer.style.setProperty("--list-width", `${listWidth}px`);
+
+  if (window.innerWidth <= 768) {
+    listsContainer.style.setProperty("--list-columns", "1");
+    listsContainer.classList.remove("scrollable-lists");
+    return;
+  }
+
+  const available = Math.max(1, listsContainer.clientWidth);
+  const fitCount = Math.max(1, Math.floor((available + gap) / (listWidth + gap)));
+  const needsScroll = listCount > fitCount;
+  const visibleColumns = Math.max(1, Math.min(listCount || 1, fitCount));
+
+  listsContainer.style.setProperty("--list-columns", String(visibleColumns));
+  listsContainer.classList.toggle("scrollable-lists", needsScroll);
+}
+
+function scheduleResponsiveListsLayout() {
+  if (listLayoutFrameRequested) return;
+  listLayoutFrameRequested = true;
+  requestAnimationFrame(() => {
+    listLayoutFrameRequested = false;
+    if (!state.user || !state.board) return;
+    const listsContainer = document.getElementById("listsContainer");
+    applyResponsiveListsLayout(listsContainer);
+  });
+}
 
 function getSeenCardsStorageKey(userId) {
   return `task-organizer:seen-cards:${userId}`;
@@ -76,7 +126,8 @@ function readUserPreferences(userId) {
     const parsed = raw ? JSON.parse(raw) : {};
     return {
       ...DEFAULT_USER_PREFERENCES,
-      highlightAssignedCards: parsed?.highlightAssignedCards !== false
+      highlightAssignedCards: parsed?.highlightAssignedCards !== false,
+      cardWidthScale: normalizeCardWidthScale(parsed?.cardWidthScale)
     };
   } catch {
     return { ...DEFAULT_USER_PREFERENCES };
@@ -88,7 +139,8 @@ function writeUserPreferences(userId, prefs) {
   const safe = {
     ...DEFAULT_USER_PREFERENCES,
     ...prefs,
-    highlightAssignedCards: prefs?.highlightAssignedCards !== false
+    highlightAssignedCards: prefs?.highlightAssignedCards !== false,
+    cardWidthScale: normalizeCardWidthScale(prefs?.cardWidthScale)
   };
   try {
     localStorage.setItem(getUserPreferencesStorageKey(userId), JSON.stringify(safe));
@@ -906,14 +958,25 @@ function renderModal() {
     return;
   }
   if (state.ui.preferencesDialogOpen) {
+    const cardWidthScale = normalizeCardWidthScale(state.preferences?.cardWidthScale);
     host.innerHTML = `
       <div class="modal-backdrop" data-close-preferences="1">
-        <section class="modal-card prompt-modal" role="dialog" aria-modal="true" aria-label="Preferences">
+        <section class="modal-card prompt-modal preferences-panel" role="dialog" aria-modal="true" aria-label="Preferences">
           <div class="modal-header">
             <h3>Preferences</h3>
             <button class="small-btn ghost close-preferences-btn" title="Close">Close</button>
           </div>
           <div class="preferences-list">
+            <label class="preferences-item preferences-size-item">
+              <span class="preferences-copy">
+                <strong>Card/List width</strong>
+                <small>Adjust board column width and card width.</small>
+              </span>
+              <span class="preferences-slider-wrap">
+                <input id="prefCardWidthScale" class="preferences-slider" type="range" min="85" max="180" step="1" value="${cardWidthScale}" />
+                <output id="prefCardWidthScaleValue" for="prefCardWidthScale">${cardWidthScale}%</output>
+              </span>
+            </label>
             <label class="preferences-item">
               <span class="preferences-copy">
                 <strong>Highlight tasks assigned to me</strong>
@@ -944,6 +1007,34 @@ function renderModal() {
     });
     host.querySelector(".close-preferences-btn").addEventListener("click", closePreferencesDialog);
     host.querySelector(".modal-card").addEventListener("click", (e) => e.stopPropagation());
+    const prefPanel = host.querySelector(".preferences-panel");
+    const prefWidthSlider = document.getElementById("prefCardWidthScale");
+    const prefWidthValue = document.getElementById("prefCardWidthScaleValue");
+    const applyWidthScaleValue = (value) => {
+      const safe = normalizeCardWidthScale(value);
+      if (prefWidthValue) prefWidthValue.textContent = `${safe}%`;
+      state.preferences = {
+        ...state.preferences,
+        cardWidthScale: safe
+      };
+      const listsContainer = document.getElementById("listsContainer");
+      applyResponsiveListsLayout(listsContainer);
+      writeUserPreferences(state.user?.id, state.preferences);
+    };
+    prefWidthSlider?.addEventListener("input", (e) => {
+      prefPanel?.classList.add("slider-adjusting");
+      applyWidthScaleValue(e.target.value);
+    });
+    prefWidthSlider?.addEventListener("change", (e) => {
+      applyWidthScaleValue(e.target.value);
+      prefPanel?.classList.remove("slider-adjusting");
+    });
+    prefWidthSlider?.addEventListener("pointerup", () => {
+      prefPanel?.classList.remove("slider-adjusting");
+    });
+    prefWidthSlider?.addEventListener("blur", () => {
+      prefPanel?.classList.remove("slider-adjusting");
+    });
     document.getElementById("prefHighlightAssignedCards")?.addEventListener("change", (e) => {
       state.preferences = {
         ...state.preferences,
@@ -1268,9 +1359,7 @@ function renderBoard() {
 
   const listsContainer = document.getElementById("listsContainer");
   listsContainer.innerHTML = state.board.lists.map(createListHtml).join("");
-  const listCount = state.board.lists.length || 1;
-  listsContainer.style.setProperty("--list-columns", String(Math.max(1, Math.min(4, listCount))));
-  listsContainer.classList.toggle("scrollable-lists", listCount > 4);
+  applyResponsiveListsLayout(listsContainer);
   renderArchive();
   renderActivity();
   renderModal();
@@ -1774,6 +1863,7 @@ async function init() {
   try {
     applyTheme(readThemePreference());
     if (themeToggleBtn) themeToggleBtn.addEventListener("click", toggleTheme);
+    window.addEventListener("resize", scheduleResponsiveListsLayout);
     await loadAppMeta();
     const me = await api("/api/me");
     if (!me.user) return render();

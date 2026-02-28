@@ -65,11 +65,11 @@ select {
 
 .app-shell {
   min-height: 100vh;
-  width: min(1320px, 100%);
-  margin: 0 auto;
+  width: 100%;
+  margin: 0;
   padding: 24px 16px;
   display: grid;
-  align-content: center;
+  align-content: start;
   gap: 12px;
 }
 
@@ -171,16 +171,20 @@ select {
 
 .active-users-bar {
   min-height: 1.1rem;
-  margin-top: 2px;
-  padding-top: 4px;
+  margin-top: 0;
+  padding: 0;
   border-top: 1px solid transparent;
   color: var(--muted);
   font-size: 0.82rem;
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  position: fixed;
+  left: 16px;
+  bottom: 12px;
+  z-index: 140;
 }
 
 .active-users-bar:empty {
@@ -546,12 +550,15 @@ button.danger:hover {
 }
 
 .lists {
+  --board-width-scale: 1;
+  --list-width: 260px;
   display: grid;
-  grid-template-columns: repeat(var(--list-columns, 4), minmax(0, 1fr));
+  grid-template-columns: repeat(var(--list-columns, 4), minmax(var(--list-width), var(--list-width)));
   justify-content: center;
   align-items: start;
   gap: 12px;
-  overflow: visible;
+  overflow-x: visible;
+  overflow-y: visible;
   padding-bottom: 8px;
   min-width: 0;
 }
@@ -559,7 +566,8 @@ button.danger:hover {
 .lists.scrollable-lists {
   grid-template-columns: none;
   grid-auto-flow: column;
-  grid-auto-columns: calc((100% - (12px * 3)) / 4);
+  grid-auto-columns: var(--list-width);
+  justify-content: start;
   overflow-x: auto;
   overflow-y: visible;
   align-items: start;
@@ -567,6 +575,7 @@ button.danger:hover {
 
 .list {
   width: 100%;
+  justify-self: center;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1261,6 +1270,43 @@ button.danger:hover {
   height: 16px;
 }
 
+.preferences-slider-wrap {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 220px;
+}
+
+.preferences-slider {
+  width: 100%;
+}
+
+.preferences-slider-wrap output {
+  min-width: 44px;
+  text-align: right;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.preferences-panel {
+  position: relative;
+}
+
+.preferences-panel.slider-adjusting::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.34);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.preferences-panel.slider-adjusting .preferences-size-item {
+  position: relative;
+  z-index: 1;
+}
+
 .labels-manager-list {
   display: grid;
   gap: 8px;
@@ -1381,10 +1427,15 @@ button.danger:hover {
 
   .lists {
     grid-template-columns: 1fr;
+    overflow-x: visible;
+    justify-content: stretch;
   }
 
   .lists.scrollable-lists {
-    grid-auto-columns: 100%;
+    grid-template-columns: 1fr;
+    grid-auto-flow: row;
+    grid-auto-columns: unset;
+    overflow-x: visible;
   }
 
   .modal-grid {
@@ -1394,25 +1445,15 @@ button.danger:hover {
   .modal-actions {
     flex-direction: column;
   }
-}
 
-@media (min-width: 769px) and (max-width: 1100px) {
-  .lists {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .lists.scrollable-lists {
-    grid-auto-columns: calc((100% - 12px) / 2);
-  }
-}
-
-@media (min-width: 1101px) and (max-width: 1360px) {
-  .lists {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .lists.scrollable-lists {
-    grid-auto-columns: calc((100% - (12px * 2)) / 3);
+  .active-users-bar {
+    left: 10px;
+    right: 10px;
+    bottom: 8px;
+    width: auto;
+    justify-content: flex-start;
+    overflow-x: visible;
+    white-space: normal;
   }
 }
 
