@@ -302,6 +302,25 @@ select {
   margin-bottom: 10px;
 }
 
+.new-card-top-form {
+  margin: 0 0 5px;
+  padding: 0 2px;
+  align-items: stretch;
+  flex-wrap: nowrap;
+}
+
+.new-card-top-form .new-card-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 38px;
+}
+
+.new-card-top-form .new-card-submit-btn {
+  flex: 0 0 auto;
+  min-height: 38px;
+  padding: 0 12px;
+}
+
 input,
 textarea,
 select {
@@ -511,7 +530,8 @@ button.danger:hover {
 
 :root[data-theme="dark"] .mini-checklist,
 :root[data-theme="dark"] .card-footer-meta,
-:root[data-theme="dark"] .checklist-section {
+:root[data-theme="dark"] .checklist-section,
+:root[data-theme="dark"] .modal-section-separator {
   border-top-color: var(--line);
 }
 
@@ -579,7 +599,7 @@ button.danger:hover {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 12px 17px;
+  padding: 10px 9px 6px;
   box-shadow: var(--shadow);
   align-self: flex-start;
   transition: border-color 180ms ease, box-shadow 220ms ease, background-color 180ms ease;
@@ -701,10 +721,10 @@ button.danger:hover {
 .card-list {
   display: grid;
   gap: 10px;
-  margin-bottom: 10px;
+  margin-bottom: 5px;
   min-height: 160px;
   align-content: start;
-  padding: 4px;
+  padding: 2px;
   border-radius: 8px;
 }
 
@@ -1194,8 +1214,18 @@ button.danger:hover {
   margin-top: 12px;
 }
 
-.card-modal-actions {
-  justify-content: flex-end;
+.modal-section-separator {
+  border-top: 1px solid #eee;
+  height: 0;
+  margin-top: 4px;
+}
+
+.modal-footer-row {
+  margin-top: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
 }
 
 .modal-meta {
@@ -1203,7 +1233,7 @@ button.danger:hover {
   flex-wrap: wrap;
   justify-content: flex-start;
   gap: 10px 16px;
-  margin-top: 10px;
+  margin-top: 0;
   color: #666;
 }
 
@@ -1324,8 +1354,8 @@ button.danger:hover {
 
 .modal-label-picker {
   margin-top: 8px;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -1333,7 +1363,9 @@ button.danger:hover {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
+  width: auto;
+  max-width: 100%;
+  flex: 0 0 auto;
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 8px 10px;
@@ -1444,6 +1476,11 @@ button.danger:hover {
 
   .modal-actions {
     flex-direction: column;
+  }
+
+  .modal-footer-row {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .active-users-bar {

@@ -32,7 +32,6 @@ const activeUsersInfoEl = document.getElementById("activeUsersInfo");
 const toastHostEl = document.getElementById("toastHost");
 const appVersionEl = document.getElementById("appVersion");
 const themeToggleBtn = document.getElementById("themeToggleBtn");
-const APP_VERSION_FALLBACK = "1.1.21";
 const THEME_STORAGE_KEY = "task-organizer:theme";
 const USER_PREFS_KEY_PREFIX = "task-organizer:prefs:";
 const THEME_ICON_MOON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.2A8.5 8.5 0 0 1 9.8 4 9 9 0 1 0 20 14.2Z"></path></svg>';
@@ -348,7 +347,7 @@ async function loadAppMeta() {
     const meta = await api("/api/meta", { headers: {} });
     if (appVersionEl) appVersionEl.textContent = `v${meta.version}`;
   } catch {
-    if (appVersionEl) appVersionEl.textContent = `v${APP_VERSION_FALLBACK}`;
+    if (appVersionEl) appVersionEl.textContent = "v?";
   }
 }
 
@@ -706,7 +705,7 @@ function createListHtml(list) {
       ${isAddOpen ? `
         <form class="new-card-top-form inline-form compact-form">
           <input class="new-card-input" maxlength="100" placeholder="New card title" required />
-          <button type="submit" class="small-btn">Add</button>
+          <button type="submit" class="small-btn ghost new-card-submit-btn">Add</button>
         </form>
       ` : ""}
       <div class="card-list drop-zone" data-list-id="${list.id}">
@@ -1180,12 +1179,13 @@ function renderModal() {
               ${renderChecklistItems(card.checklist)}
             </div>
           </div>
+          <div class="full modal-section-separator"></div>
         </div>
-        <div class="modal-meta">
-          <small>Created: ${escapeHtml(formatTime(card.createdAt || ""))} by ${escapeHtml(card.createdByName || findUserName(card.createdById) || "Unknown")}</small>
-          <small>Updated: ${escapeHtml(formatTime(card.updatedAt || ""))}</small>
-        </div>
-        <div class="modal-actions card-modal-actions">
+        <div class="modal-footer-row">
+          <div class="modal-meta">
+            <small>Created: ${escapeHtml(formatTime(card.createdAt || ""))} by ${escapeHtml(card.createdByName || findUserName(card.createdById) || "Unknown")}</small>
+            <small>Updated: ${escapeHtml(formatTime(card.updatedAt || ""))}</small>
+          </div>
           <button id="modalDeleteCardBtn" class="danger">Archive Card</button>
         </div>
       </section>
@@ -1261,7 +1261,7 @@ function renderModal() {
     btn.closest(".checklist-row")?.remove();
     const container = document.getElementById("modalChecklistItems");
     if (!container.querySelector(".checklist-row")) {
-      container.innerHTML = '<div class="hint checklist-empty">No checklist items yet.</div>';
+      container.innerHTML = '<div class="checklist-empty" hidden></div>';
     }
   });
 }
@@ -1282,7 +1282,7 @@ function checklistItemRowHtml(item) {
 
 function renderChecklistItems(items) {
   if (!items.length) {
-    return '<div class="hint checklist-empty">No checklist items yet.</div>';
+    return '<div class="checklist-empty" hidden></div>';
   }
   return items.map((item) => checklistItemRowHtml(item)).join("");
 }

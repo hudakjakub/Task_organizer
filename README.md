@@ -2,7 +2,7 @@
 
 A Trello-like multi-user task organizer web app built with plain Node.js and vanilla frontend code.
 
-Version: `v1.1.21`
+Version: from `package.json` (served via `/api/meta`)
 
 ## Features
 
