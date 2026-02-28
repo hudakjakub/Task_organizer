@@ -1,12 +1,22 @@
 services:
   my-http-app:
-    build: .
+    image: ghcr.io/hudakjakub/task-organizer:latest
     container_name: my-http-app
     restart: unless-stopped
     environment:
       - PORT=3000
       - TASK_ORG_DATA_DIR=/app/data
     ports:
-      - "192.168.88.50:3000:3000"   # change to your server LAN IP
+      - "192.168.88.50:3000:3000"
     volumes:
       - ./data:/app/data
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    environment:
+      - DOCKER_API_VERSION=1.44
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 60 my-http-app
